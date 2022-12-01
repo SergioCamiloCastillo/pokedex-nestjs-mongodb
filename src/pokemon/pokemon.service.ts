@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model } from 'mongoose';
+import { resourceLimits } from 'worker_threads';
 import { CreatePokemonDto } from './dto/create-pokemon.dto';
 import { UpdatePokemonDto } from './dto/update-pokemon.dto';
 import { Pokemon } from './entities/pokemon.entity';
@@ -24,13 +25,7 @@ export class PokemonService {
       const pokemon = await this.pokemonModel.create(createPokemonDto);
       return pokemon;
     } catch (error) {
-      if (error.code === 11000) {
-        throw new BadRequestException(
-          `Pokemon ya existe en db ${JSON.stringify(error.keyValue)}`,
-        );
-      }
-      console.log('Error fue=>', error);
-      throw new InternalServerErrorException();
+      this.handleExceptions(error);
     }
   }
 
@@ -63,15 +58,31 @@ export class PokemonService {
     const pokemon = await this.findOne(id);
     if (updatePokemonDto.name) {
       updatePokemonDto.name = updatePokemonDto.name.toLowerCase();
-      
+      try {
+        await pokemon.updateOne(updatePokemonDto, {
+          new: true,
+        });
+        return { ...pokemon.toJSON(), ...updatePokemonDto };
+      } catch (error) {
+        this.handleExceptions(error);
+      }
     }
-   await pokemon.updateOne(updatePokemonDto, {
-      new: true,
-    });
-    return {...pokemon.toJSON(), ...updatePokemonDto};
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} pokemon`;
+  async remove(id: string) {
+    const { deletedCount } = await this.pokemonModel.deleteOne({ _id: id });
+    if (deletedCount === 0) {
+      throw new BadRequestException(`Pokemon con el id ${id} no existe`);
+    }
+    return;
+  }
+  private handleExceptions(error: any) {
+    if (error.code === 11000) {
+      throw new BadRequestException(
+        `Pokemon ya existe en db ${JSON.stringify(error.keyValue)}`,
+      );
+    }
+    console.log('Error fue=>', error);
+    throw new InternalServerErrorException();
   }
 }
